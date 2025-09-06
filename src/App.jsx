@@ -77,17 +77,6 @@ function App() {
       setIsTranslating(true)
       setError('')
       try {
-        let updatedEnglish
-        if (translationMode === 'deepl') {
-          const deeplApiKey = await apiKeyManager.getApiKey('deepl')
-          if (!deeplApiKey) {
-            setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
-            return
-          }
-          updatedEnglish = await translateWithDeepL(newJapaneseText, 'EN', deeplApiKey)
-        } else {
-          updatedEnglish = await translateText(newJapaneseText, 'en')
-        }
         // 書式保護: 行頭トークンのケースを前の英語に合わせて保存（箇条書き/見出し/番号付き対応、コードブロックは無視）
         const isCodeFence = (line) => line.trim().startsWith('```')
         const firstWordAfterMarkers = (line) => {
@@ -151,8 +140,62 @@ function App() {
           }
           return out.join('\n')
         }
-        const casedEnglish = applyPreserveTokenCase(englishText, updatedEnglish)
-        setEnglishText(casedEnglish)
+        // 最小限の変換: 行数が同じで変更行が少数なら、その行だけ翻訳して差し替え
+        const prevJ = (originalJapanese || '')
+        const prevE = (englishText || '')
+        const prevJLines = prevJ.split(/\r?\n/)
+        const prevELines = prevE.split(/\r?\n/)
+        const newJLines = newJapaneseText.split(/\r?\n/)
+        const canPartial = prevJ && prevE && prevJLines.length === newJLines.length
+
+        const translateLine = async (ja) => {
+          if (translationMode === 'deepl') {
+            const deeplApiKey = await apiKeyManager.getApiKey('deepl')
+            if (!deeplApiKey) {
+              setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
+              return null
+            }
+            return await translateWithDeepL(ja, 'EN', deeplApiKey)
+          } else {
+            return await translateText(ja, 'en')
+          }
+        }
+
+        let nextEnglish = ''
+        if (canPartial) {
+          const changedIdx = []
+          for (let i = 0; i < newJLines.length; i++) {
+            if (newJLines[i] !== prevJLines[i]) changedIdx.push(i)
+          }
+          if (changedIdx.length > 0 && changedIdx.length <= 3) {
+            const newELines = [...prevELines]
+            const parts = await Promise.all(changedIdx.map(i => translateLine(newJLines[i])))
+            for (let k = 0; k < changedIdx.length; k++) {
+              const i = changedIdx[k]
+              const t = parts[k] ?? ''
+              newELines[i] = preserveFirstTokenCase(prevELines[i] || '', (t || ''))
+            }
+            nextEnglish = newELines.join('\n')
+          }
+        }
+
+        if (!nextEnglish) {
+          // 全体更新（トークンのケースは前回英語に合わせて保護）
+          let full
+          if (translationMode === 'deepl') {
+            const deeplApiKey = await apiKeyManager.getApiKey('deepl')
+            if (!deeplApiKey) {
+              setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
+              return
+            }
+            full = await translateWithDeepL(newJapaneseText, 'EN', deeplApiKey)
+          } else {
+            full = await translateText(newJapaneseText, 'en')
+          }
+          nextEnglish = applyPreserveTokenCase(prevE, full || '')
+        }
+
+        setEnglishText(nextEnglish)
         setOriginalJapanese(newJapaneseText)
       } catch (error) {
         console.error('Translation error:', error)
