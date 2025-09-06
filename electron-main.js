@@ -237,6 +237,17 @@ function createWindow() {
 
 // アプリケーションの準備ができたらウィンドウを作成
 app.whenReady().then(() => {
+  // macOSのDockアイコンを明示的に設定（開発時の見た目統一）
+  if (process.platform === 'darwin') {
+    try {
+      const dockIconPath = path.join(__dirname, 'assets', 'icon.png');
+      if (fs.existsSync(dockIconPath) && app.dock && app.dock.setIcon) {
+        app.dock.setIcon(dockIconPath);
+      }
+    } catch (e) {
+      console.warn('Failed to set dock icon:', e);
+    }
+  }
   createWindow();
 
   app.on('activate', () => {
