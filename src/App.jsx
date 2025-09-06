@@ -259,18 +259,7 @@ function App() {
                 placeholder="翻訳された日本語がここに表示されます。編集すると英語が自動修正されます..."
                 className="min-h-[300px] resize-none"
               />
-              <div className="mt-4 flex justify-between items-center">
-                <div className="text-sm text-gray-500">
-                  💡 ヒント: 日本語を編集すると、左の英語が自動的に修正されます（500ms後）
-                </div>
-                <Button 
-                  onClick={forceUpdateEnglish}
-                  variant="outline"
-                  className="text-sm"
-                >
-                  🔄 強制更新
-                </Button>
-              </div>
+              {/* リアルタイム変換に統一のためヒントと強制更新ボタンを削除 */}
             </CardContent>
           </Card>
         </div>
