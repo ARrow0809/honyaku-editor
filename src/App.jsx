@@ -26,6 +26,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const debounceTimer = useRef(null)
   const englishDebounceTimer = useRef(null)
+  const [lastEdited, setLastEdited] = useState(null) // 'en' | 'ja'
 
   const translateToJapanese = async () => {
     if (!englishText.trim()) return
@@ -57,12 +58,51 @@ function App() {
   }
 
   const updateEnglishFromJapanese = (newJapaneseText) => {
-    // 日本語（編集可能）の変更時に、左の原文（英語）は一切変更しない
+    // 日本語編集 → 左の英語を自動更新（500msデバウンス）
+    setLastEdited('ja')
     setJapaneseText(newJapaneseText)
+
+    // 空なら英語側もクリア
+    if (!newJapaneseText.trim()) {
+      setEnglishText('')
+      setOriginalJapanese('')
+      return
+    }
+
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current)
+    }
+
+    debounceTimer.current = setTimeout(async () => {
+      setIsTranslating(true)
+      setError('')
+      try {
+        let updatedEnglish
+        if (translationMode === 'deepl') {
+          const deeplApiKey = await apiKeyManager.getApiKey('deepl')
+          if (!deeplApiKey) {
+            setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
+            return
+          }
+          updatedEnglish = await translateWithDeepL(newJapaneseText, 'EN', deeplApiKey)
+        } else {
+          updatedEnglish = await translateText(newJapaneseText, 'en')
+        }
+        setEnglishText(updatedEnglish)
+        setOriginalJapanese(newJapaneseText)
+      } catch (error) {
+        console.error('Translation error:', error)
+        setError(error.message || '翻訳に失敗しました。')
+      } finally {
+        setIsTranslating(false)
+      }
+    }, 500)
   }
 
   // 英語入力のリアルタイム翻訳（英→日）
   useEffect(() => {
+    // 直近の入力が英語のときだけ、右を自動更新
+    if (lastEdited !== 'en') return
     // 空文字なら右側もクリア
     if (!englishText.trim()) {
       setJapaneseText('')
@@ -105,7 +145,7 @@ function App() {
         clearTimeout(englishDebounceTimer.current)
       }
     }
-  }, [englishText, translationMode])
+  }, [englishText, translationMode, lastEdited])
 
   // 更新ボタン用の関数（デバッグ用）
   const forceUpdateEnglish = () => {
@@ -180,7 +220,7 @@ function App() {
             <CardContent>
               <Textarea
                 value={englishText}
-                onChange={(e) => setEnglishText(e.target.value)}
+                onChange={(e) => { setLastEdited('en'); setEnglishText(e.target.value) }}
                 placeholder="英語のテキストを入力してください..."
                 className="min-h-[300px] resize-none"
               />
