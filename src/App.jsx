@@ -88,58 +88,70 @@ function App() {
         } else {
           updatedEnglish = await translateText(newJapaneseText, 'en')
         }
-        // 先頭文字の大文字化を防ぐ（前の英語の書式を優先）
-        const preserveLeadingCase = (prevLine, nextLine) => {
-          if (!prevLine || !nextLine) return nextLine
-          // 次の行の先頭の英字位置
-          const findFirstAlpha = (s) => {
-            for (let i = 0; i < s.length; i++) {
-              const ch = s[i]
-              if (/[A-Za-z]/.test(ch)) return i
-            }
-            return -1
-          }
-          const iPrev = findFirstAlpha(prevLine)
-          const iNext = findFirstAlpha(nextLine)
-          if (iPrev === -1 || iNext === -1) return nextLine
-          const prevChar = prevLine[iPrev]
-          const nextChar = nextLine[iNext]
-          const shouldLower = prevChar === prevChar.toLowerCase()
-          const shouldUpper = prevChar === prevChar.toUpperCase()
-          if (/[A-Za-z]/.test(nextChar)) {
-            if (shouldLower && nextChar !== nextChar.toLowerCase()) {
-              return (
-                nextLine.slice(0, iNext) +
-                nextChar.toLowerCase() +
-                nextLine.slice(iNext + 1)
-              )
-            }
-            if (shouldUpper && nextChar !== nextChar.toUpperCase()) {
-              return (
-                nextLine.slice(0, iNext) +
-                nextChar.toUpperCase() +
-                nextLine.slice(iNext + 1)
-              )
-            }
-          }
-          return nextLine
+        // 書式保護: 行頭トークンのケースを前の英語に合わせて保存（箇条書き/見出し/番号付き対応、コードブロックは無視）
+        const isCodeFence = (line) => line.trim().startsWith('```')
+        const firstWordAfterMarkers = (line) => {
+          // マーカー: *, -, •, 数字. / 数字) / # 見出し
+          const m = line.match(/^\s*(?:[*•\-]\s+|\d+[\.)]\s+|#+\s+)?(.+?)$/)
+          const rest = m ? m[1] : line
+          const m2 = rest.match(/([A-Za-z][A-Za-z0-9_\-]*)/)
+          return m2 ? { token: m2[1], index: (m ? m[0].length - m2[0].length : rest.indexOf(m2[1])) + (line.length - rest.length) } : null
         }
-
-        const applyPreserveLeadingCase = (prevText, nextText) => {
+        const caseStyleOf = (word) => {
+          if (!word) return 'asIs'
+          if (word.toUpperCase() === word) return 'upper'
+          if (word.toLowerCase() === word) return 'lower'
+          if (/^[A-Z][a-z0-9\-_]*$/.test(word)) return 'capitalized'
+          return 'asIs'
+        }
+        const applyStyle = (style, word) => {
+          if (!word) return word
+          switch (style) {
+            case 'upper': return word.toUpperCase()
+            case 'lower': return word.toLowerCase()
+            case 'capitalized': return word[0].toUpperCase() + word.slice(1).toLowerCase()
+            default: return word
+          }
+        }
+        const preserveFirstTokenCase = (prevLine, nextLine) => {
+          if (!prevLine || !nextLine) return nextLine
+          // コードブロック行は変更しない
+          if (isCodeFence(prevLine) || isCodeFence(nextLine) || prevLine.trim().startsWith('`') || nextLine.trim().startsWith('`')) {
+            return nextLine
+          }
+          const prev = firstWordAfterMarkers(prevLine)
+          const next = firstWordAfterMarkers(nextLine)
+          if (!prev || !next) return nextLine
+          if (prev.token.toLowerCase() !== next.token.toLowerCase()) return nextLine
+          const style = caseStyleOf(prev.token)
+          const styled = applyStyle(style, next.token)
+          if (styled === next.token) return nextLine
+          // 置換（最初に見つかった同一トークン位置を安全に置換）
+          const before = nextLine.slice(0, next.index)
+          const afterStart = next.index + next.token.length
+          const after = nextLine.slice(afterStart)
+          return before + styled + after
+        }
+        const applyPreserveTokenCase = (prevText, nextText) => {
           const prevLines = (prevText || '').split(/\r?\n/)
           const nextLines = (nextText || '').split(/\r?\n/)
-          const max = Math.max(prevLines.length, nextLines.length)
+          let inFence = false
           const out = []
+          const max = Math.max(prevLines.length, nextLines.length)
           for (let i = 0; i < max; i++) {
-            const prevLine = prevLines[i] || ''
-            const nextLine = nextLines[i] || ''
-            out.push(preserveLeadingCase(prevLine, nextLine))
+            const p = prevLines[i] || ''
+            let n = nextLines[i] || ''
+            const toggle = (s) => isCodeFence(s)
+            if (toggle(p)) inFence = !inFence
+            if (!inFence) {
+              n = preserveFirstTokenCase(p, n)
+            }
+            if (toggle(n)) inFence = !inFence
+            out.push(n)
           }
           return out.join('\n')
         }
-
-        // 現在の英語（before）を基準に、行頭の英字の大小を維持
-        const casedEnglish = applyPreserveLeadingCase(englishText, updatedEnglish)
+        const casedEnglish = applyPreserveTokenCase(englishText, updatedEnglish)
         setEnglishText(casedEnglish)
         setOriginalJapanese(newJapaneseText)
       } catch (error) {
