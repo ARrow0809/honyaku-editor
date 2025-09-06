@@ -284,7 +284,7 @@ function App() {
             <CardContent>
               <Textarea
                 value={englishText}
-                onChange={(e) => { setLastEdited('en'); setEnglishText(e.target.value) }}
+                onInput={(e) => { setLastEdited('en'); setEnglishText(e.target.value) }}
                 placeholder="英語のテキストを入力してください..."
                 className="min-h-[300px] resize-none"
               />
@@ -319,7 +319,7 @@ function App() {
             <CardContent>
               <Textarea
                 value={japaneseText}
-                onChange={(e) => updateEnglishFromJapanese(e.target.value)}
+                onInput={(e) => updateEnglishFromJapanese(e.target.value)}
                 placeholder="翻訳された日本語がここに表示されます。編集すると英語が自動修正されます..."
                 className="min-h-[300px] resize-none"
               />
