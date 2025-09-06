@@ -22,7 +22,7 @@ function App() {
   const [isTranslating, setIsTranslating] = useState(false)
   const [error, setError] = useState('')
   const [originalJapanese, setOriginalJapanese] = useState('')
-  const [translationMode, setTranslationMode] = useState('openai') // 'openai', 'deepl'
+  const [translationMode, setTranslationMode] = useState('deepl') // 'openai', 'deepl'
   const [showSettings, setShowSettings] = useState(false)
   const debounceTimer = useRef(null)
 
@@ -56,72 +56,8 @@ function App() {
   }
 
   const updateEnglishFromJapanese = (newJapaneseText) => {
-    console.log('🔄 updateEnglishFromJapanese called with:', newJapaneseText)
+    // 日本語（編集可能）の変更時に、左の原文（英語）は一切変更しない
     setJapaneseText(newJapaneseText)
-    
-    if (!newJapaneseText.trim()) {
-      setEnglishText('')
-      setOriginalJapanese('')
-      return
-    }
-
-    // デバウンス処理：ユーザーが入力を停止してから500ms後に翻訳を実行
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-    }
-
-    debounceTimer.current = setTimeout(async () => {
-      console.log('⏰ Debounce timer triggered. originalJapanese:', originalJapanese, 'englishText:', englishText, 'newJapaneseText:', newJapaneseText)
-      
-      // 常に翻訳を実行（初回でも部分修正でも）
-      try {
-        let updatedEnglish;
-        
-        if (originalJapanese && englishText && originalJapanese !== newJapaneseText) {
-          // 部分修正の場合
-          console.log('🔄 Partial update mode')
-          if (translationMode === 'deepl') {
-            const deeplApiKey = await apiKeyManager.getApiKey('deepl');
-            if (!deeplApiKey) {
-              setError('DeepL APIキーが設定されていません。設定画面で入力してください。');
-              return;
-            }
-            updatedEnglish = await translatePartialChangesWithDeepL(
-              englishText,
-              originalJapanese,
-              newJapaneseText,
-              deeplApiKey
-            );
-          } else if (translationMode === 'openai') {
-            updatedEnglish = await translatePartialChanges(
-              englishText,
-              originalJapanese,
-              newJapaneseText
-            );
-          }
-        } else {
-          // 初回翻訳または全体翻訳の場合
-          console.log('🆕 Full translation mode')
-          if (translationMode === 'deepl') {
-            const deeplApiKey = await apiKeyManager.getApiKey('deepl');
-            if (!deeplApiKey) {
-              setError('DeepL APIキーが設定されていません。設定画面で入力してください。');
-              return;
-            }
-            updatedEnglish = await translateWithDeepL(newJapaneseText, 'EN', deeplApiKey);
-          } else if (translationMode === 'openai') {
-            updatedEnglish = await translateText(newJapaneseText, 'en');
-          }
-        }
-        
-        console.log('✅ Translation result:', updatedEnglish)
-        setEnglishText(updatedEnglish)
-        setOriginalJapanese(newJapaneseText)
-      } catch (error) {
-        console.error('Translation error:', error)
-        setError(error.message || '翻訳に失敗しました。')
-      }
-    }, 500)
   }
 
   // 更新ボタン用の関数（デバッグ用）
