@@ -26,6 +26,7 @@ coverage.xml
 # Build outputs
 static/
 dist/
+dist-electron/
 build/
 unused/
 
