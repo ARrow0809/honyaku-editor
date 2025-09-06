@@ -1,6 +1,6 @@
 {
   "appId": "com.realtimetranslation.app",
-  "productName": "Realtime Translation Tool",
+  "productName": "翻訳編集くん",
   "directories": {
     "output": "dist-electron"
   },
@@ -11,6 +11,7 @@
     "package.json"
   ],
   "mac": {
+    "icon": "assets/icon.png",
     "target": [
       {
         "target": "dmg",
@@ -36,7 +37,7 @@
     ]
   },
   "dmg": {
-    "title": "Realtime Translation Tool"
+    "title": "翻訳編集くん"
   },
   "nsis": {
     "oneClick": false,
