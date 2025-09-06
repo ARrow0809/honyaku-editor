@@ -26,7 +26,10 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const debounceTimer = useRef(null)
   const englishDebounceTimer = useRef(null)
-  const [lastEdited, setLastEdited] = useState(null) // 'en' | 'ja'
+  // 最小変換用の保持
+  const lastCommittedEN = useRef('')
+  const lastENLines = useRef([])
+  const lastJALines = useRef([])
 
   const translateToJapanese = async () => {
     if (!englishText.trim()) return
@@ -58,176 +61,24 @@ function App() {
   }
 
   const updateEnglishFromJapanese = (newJapaneseText) => {
-    // 日本語編集 → 左の英語を自動更新（500msデバウンス）
-    setLastEdited('ja')
+    // AGENT.md準拠: 日本語の編集は英語に波及しない（翻訳は発火させない）
     setJapaneseText(newJapaneseText)
-
-    // 空なら英語側もクリア
-    if (!newJapaneseText.trim()) {
-      setEnglishText('')
-      setOriginalJapanese('')
-      return
+    // 行数が一致する場合は lastJALines も同期（内部表示用）
+    const cur = newJapaneseText.split(/\r?\n/)
+    if (cur.length === lastJALines.current.length) {
+      lastJALines.current = cur
     }
-
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-    }
-
-    debounceTimer.current = setTimeout(async () => {
-      setIsTranslating(true)
-      setError('')
-      try {
-        // 書式保護: 行頭トークンのケースを前の英語に合わせて保存（箇条書き/見出し/番号付き対応、コードブロックは無視）
-        const isCodeFence = (line) => line.trim().startsWith('```')
-        const firstWordAfterMarkers = (line) => {
-          // マーカー: *, -, •, 数字. / 数字) / # 見出し
-          const m = line.match(/^\s*(?:[*•\-]\s+|\d+[\.)]\s+|#+\s+)?(.+?)$/)
-          const rest = m ? m[1] : line
-          const m2 = rest.match(/([A-Za-z][A-Za-z0-9_\-]*)/)
-          return m2 ? { token: m2[1], index: (m ? m[0].length - m2[0].length : rest.indexOf(m2[1])) + (line.length - rest.length) } : null
-        }
-        const caseStyleOf = (word) => {
-          if (!word) return 'asIs'
-          if (word.toUpperCase() === word) return 'upper'
-          if (word.toLowerCase() === word) return 'lower'
-          if (/^[A-Z][a-z0-9\-_]*$/.test(word)) return 'capitalized'
-          return 'asIs'
-        }
-        const applyStyle = (style, word) => {
-          if (!word) return word
-          switch (style) {
-            case 'upper': return word.toUpperCase()
-            case 'lower': return word.toLowerCase()
-            case 'capitalized': return word[0].toUpperCase() + word.slice(1).toLowerCase()
-            default: return word
-          }
-        }
-        const leadingPrefixOf = (line) => {
-          // 先頭の空白やマーカー（*, -, •, 数字., 数字), #）までを前英語から温存
-          const m = line.match(/^\s*(?:[*•\-]\s+|\d+[\.)]\s+|#+\s+)?/)
-          return m ? m[0] : ''
-        }
-        const preserveFirstTokenCase = (prevLine, nextLine) => {
-          if (!prevLine || !nextLine) return nextLine
-          // コードブロック行は変更しない
-          if (isCodeFence(prevLine) || isCodeFence(nextLine) || prevLine.trim().startsWith('`') || nextLine.trim().startsWith('`')) {
-            return nextLine
-          }
-          const prev = firstWordAfterMarkers(prevLine)
-          const next = firstWordAfterMarkers(nextLine)
-          if (!prev || !next) return nextLine
-          if (prev.token.toLowerCase() !== next.token.toLowerCase()) return nextLine
-          const style = caseStyleOf(prev.token)
-          const styled = applyStyle(style, next.token)
-          // 先頭プレフィクス（空白やマーカー）は前行のものを優先
-          const prevPrefix = leadingPrefixOf(prevLine)
-          const nextPrefix = leadingPrefixOf(nextLine)
-          let out = nextLine
-          if (prevPrefix && prevPrefix !== nextPrefix) {
-            // nextLineの先頭プレフィクスを前行のものに差し替え
-            out = prevPrefix + nextLine.slice(nextPrefix.length)
-          }
-          if (styled === next.token && out === nextLine) return nextLine
-          // 置換（最初に見つかった同一トークン位置を安全に置換）。out基準で再計算
-          const adj = firstWordAfterMarkers(out)
-          const before = out.slice(0, adj ? adj.index : next.index)
-          const afterStart = (adj ? adj.index : next.index) + (adj ? adj.token.length : next.token.length)
-          const after = out.slice(afterStart)
-          return before + styled + after
-        }
-        const applyPreserveTokenCase = (prevText, nextText) => {
-          const prevLines = (prevText || '').split(/\r?\n/)
-          const nextLines = (nextText || '').split(/\r?\n/)
-          let inFence = false
-          const out = []
-          const max = Math.max(prevLines.length, nextLines.length)
-          for (let i = 0; i < max; i++) {
-            const p = prevLines[i] || ''
-            let n = nextLines[i] || ''
-            const toggle = (s) => isCodeFence(s)
-            if (toggle(p)) inFence = !inFence
-            if (!inFence) {
-              n = preserveFirstTokenCase(p, n)
-            }
-            if (toggle(n)) inFence = !inFence
-            out.push(n)
-          }
-          return out.join('\n')
-        }
-        // 最小限の変換: 行数が同じで変更行が少数なら、その行だけ翻訳して差し替え
-        const prevJ = (originalJapanese || '')
-        const prevE = (englishText || '')
-        const prevJLines = prevJ.split(/\r?\n/)
-        const prevELines = prevE.split(/\r?\n/)
-        const newJLines = newJapaneseText.split(/\r?\n/)
-        const canPartial = prevJ && prevE && prevJLines.length === newJLines.length
-
-        const translateLine = async (ja) => {
-          if (translationMode === 'deepl') {
-            const deeplApiKey = await apiKeyManager.getApiKey('deepl')
-            if (!deeplApiKey) {
-              setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
-              return null
-            }
-            return await translateWithDeepL(ja, 'EN', deeplApiKey)
-          } else {
-            return await translateText(ja, 'en')
-          }
-        }
-
-        let nextEnglish = ''
-        if (canPartial) {
-          const changedIdx = []
-          for (let i = 0; i < newJLines.length; i++) {
-            if (newJLines[i] !== prevJLines[i]) changedIdx.push(i)
-          }
-          if (changedIdx.length > 0 && changedIdx.length <= 3) {
-            const newELines = [...prevELines]
-            const parts = await Promise.all(changedIdx.map(i => translateLine(newJLines[i])))
-            for (let k = 0; k < changedIdx.length; k++) {
-              const i = changedIdx[k]
-              const t = parts[k] ?? ''
-              newELines[i] = preserveFirstTokenCase(prevELines[i] || '', (t || ''))
-            }
-            nextEnglish = newELines.join('\n')
-          }
-        }
-
-        if (!nextEnglish) {
-          // 全体更新（トークンのケースは前回英語に合わせて保護）
-          let full
-          if (translationMode === 'deepl') {
-            const deeplApiKey = await apiKeyManager.getApiKey('deepl')
-            if (!deeplApiKey) {
-              setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
-              return
-            }
-            full = await translateWithDeepL(newJapaneseText, 'EN', deeplApiKey)
-          } else {
-            full = await translateText(newJapaneseText, 'en')
-          }
-          nextEnglish = applyPreserveTokenCase(prevE, full || '')
-        }
-
-        setEnglishText(nextEnglish)
-        setOriginalJapanese(newJapaneseText)
-      } catch (error) {
-        console.error('Translation error:', error)
-        setError(error.message || '翻訳に失敗しました。')
-      } finally {
-        setIsTranslating(false)
-      }
-    }, 500)
   }
 
   // 英語入力のリアルタイム翻訳（英→日）
   useEffect(() => {
-    // 直近の入力が英語のときだけ、右を自動更新
-    if (lastEdited !== 'en') return
     // 空文字なら右側もクリア
     if (!englishText.trim()) {
       setJapaneseText('')
       setOriginalJapanese('')
+      lastCommittedEN.current = ''
+      lastENLines.current = []
+      lastJALines.current = []
       return
     }
 
@@ -240,19 +91,60 @@ function App() {
       setIsTranslating(true)
       setError('')
       try {
-        let translated
-        if (translationMode === 'deepl') {
-          const deeplApiKey = await apiKeyManager.getApiKey('deepl')
-          if (!deeplApiKey) {
-            setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
-            return
+        // AGENT.md準拠: 変換を最小限に（英→日のみ、行単位差分）
+        const nowEN = englishText
+        const nowENLines = nowEN.split(/\r?\n/)
+        const prevENLines = lastENLines.current
+        const prevJALines = lastJALines.current
+
+        const normalize = (s) => s.replace(/\s+/g, ' ').trim()
+        const map = new Map((prevENLines || []).map((l, i) => [normalize(l), i]))
+        const outJA = []
+
+        const translateLine = async (en) => {
+          if (!en.trim()) return ''
+          if (translationMode === 'deepl') {
+            const deeplApiKey = await apiKeyManager.getApiKey('deepl')
+            if (!deeplApiKey) {
+              setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
+              return ''
+            }
+            return await translateWithDeepL(en, 'JA', deeplApiKey)
+          } else {
+            return await translateText(en, 'ja')
           }
-          translated = await translateWithDeepL(englishText, 'JA', deeplApiKey)
-        } else {
-          translated = await translateText(englishText, 'ja')
         }
-        setJapaneseText(translated)
-        setOriginalJapanese(translated)
+
+        for (const line of nowENLines) {
+          // 区切り線はそのまま
+          if (/^\s*---\s*$/.test(line)) {
+            outJA.push('---')
+            continue
+          }
+          // 箇条書きはマーカー保持
+          const m = line.match(/^(\s*[*-]\s*)(.*)$/)
+          const bullet = m ? m[1] : ''
+          const body = m ? m[2] : line
+
+          const key = normalize(line)
+          const prevIdx = map.get(key)
+          if (prevIdx !== undefined && prevJALines[prevIdx] !== undefined) {
+            outJA.push(prevJALines[prevIdx])
+          } else if (!body.trim()) {
+            outJA.push(bullet)
+          } else {
+            const jaLine = await translateLine(body)
+            outJA.push(bullet + jaLine)
+          }
+        }
+
+        // 状態更新（確定）
+        lastCommittedEN.current = nowEN
+        lastENLines.current = nowENLines
+        lastJALines.current = outJA
+        const jaJoined = outJA.join('\n')
+        setJapaneseText(jaJoined)
+        setOriginalJapanese(jaJoined)
       } catch (error) {
         console.error('Translation error:', error)
         setError(error.message || '翻訳に失敗しました。')
@@ -266,7 +158,7 @@ function App() {
         clearTimeout(englishDebounceTimer.current)
       }
     }
-  }, [englishText, translationMode, lastEdited])
+  }, [englishText, translationMode])
 
   // 更新ボタン用の関数（デバッグ用）
   const forceUpdateEnglish = () => {
@@ -341,9 +233,13 @@ function App() {
             <CardContent>
               <Textarea
                 value={englishText}
-                onInput={(e) => { setLastEdited('en'); setEnglishText(e.target.value) }}
+                onInput={(e) => { setEnglishText(e.target.value) }}
                 placeholder="英語のテキストを入力してください..."
                 className="min-h-[300px] resize-none"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
               />
               <div className="mt-4 flex justify-center gap-2">
                 <Button 
@@ -379,6 +275,10 @@ function App() {
                 onInput={(e) => updateEnglishFromJapanese(e.target.value)}
                 placeholder="翻訳された日本語がここに表示されます。編集すると英語が自動修正されます..."
                 className="min-h-[300px] resize-none"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
               />
               {/* リアルタイム変換に統一のためヒントと強制更新ボタンを削除 */}
             </CardContent>

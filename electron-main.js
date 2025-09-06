@@ -183,6 +183,7 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       webSecurity: true,
+      spellcheck: false,
       preload: path.join(__dirname, 'electron-preload.js')
     },
     icon: path.join(__dirname, 'assets', 'icon.png'), // アイコンファイルがある場合
