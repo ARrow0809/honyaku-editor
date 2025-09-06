@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Button } from './components/ui/button.jsx'
 import { Textarea } from './components/ui/textarea.jsx'
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card.jsx'
@@ -25,6 +25,7 @@ function App() {
   const [translationMode, setTranslationMode] = useState('deepl') // 'openai', 'deepl'
   const [showSettings, setShowSettings] = useState(false)
   const debounceTimer = useRef(null)
+  const englishDebounceTimer = useRef(null)
 
   const translateToJapanese = async () => {
     if (!englishText.trim()) return
@@ -59,6 +60,52 @@ function App() {
     // 日本語（編集可能）の変更時に、左の原文（英語）は一切変更しない
     setJapaneseText(newJapaneseText)
   }
+
+  // 英語入力のリアルタイム翻訳（英→日）
+  useEffect(() => {
+    // 空文字なら右側もクリア
+    if (!englishText.trim()) {
+      setJapaneseText('')
+      setOriginalJapanese('')
+      return
+    }
+
+    // デバウンス 500ms
+    if (englishDebounceTimer.current) {
+      clearTimeout(englishDebounceTimer.current)
+    }
+
+    englishDebounceTimer.current = setTimeout(async () => {
+      setIsTranslating(true)
+      setError('')
+      try {
+        let translated
+        if (translationMode === 'deepl') {
+          const deeplApiKey = await apiKeyManager.getApiKey('deepl')
+          if (!deeplApiKey) {
+            setError('DeepL APIキーが設定されていません。設定画面で入力してください。')
+            return
+          }
+          translated = await translateWithDeepL(englishText, 'JA', deeplApiKey)
+        } else {
+          translated = await translateText(englishText, 'ja')
+        }
+        setJapaneseText(translated)
+        setOriginalJapanese(translated)
+      } catch (error) {
+        console.error('Translation error:', error)
+        setError(error.message || '翻訳に失敗しました。')
+      } finally {
+        setIsTranslating(false)
+      }
+    }, 500)
+
+    return () => {
+      if (englishDebounceTimer.current) {
+        clearTimeout(englishDebounceTimer.current)
+      }
+    }
+  }, [englishText, translationMode])
 
   // 更新ボタン用の関数（デバッグ用）
   const forceUpdateEnglish = () => {
