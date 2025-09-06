@@ -102,6 +102,11 @@ function App() {
             default: return word
           }
         }
+        const leadingPrefixOf = (line) => {
+          // 先頭の空白やマーカー（*, -, •, 数字., 数字), #）までを前英語から温存
+          const m = line.match(/^\s*(?:[*•\-]\s+|\d+[\.)]\s+|#+\s+)?/)
+          return m ? m[0] : ''
+        }
         const preserveFirstTokenCase = (prevLine, nextLine) => {
           if (!prevLine || !nextLine) return nextLine
           // コードブロック行は変更しない
@@ -114,11 +119,20 @@ function App() {
           if (prev.token.toLowerCase() !== next.token.toLowerCase()) return nextLine
           const style = caseStyleOf(prev.token)
           const styled = applyStyle(style, next.token)
-          if (styled === next.token) return nextLine
-          // 置換（最初に見つかった同一トークン位置を安全に置換）
-          const before = nextLine.slice(0, next.index)
-          const afterStart = next.index + next.token.length
-          const after = nextLine.slice(afterStart)
+          // 先頭プレフィクス（空白やマーカー）は前行のものを優先
+          const prevPrefix = leadingPrefixOf(prevLine)
+          const nextPrefix = leadingPrefixOf(nextLine)
+          let out = nextLine
+          if (prevPrefix && prevPrefix !== nextPrefix) {
+            // nextLineの先頭プレフィクスを前行のものに差し替え
+            out = prevPrefix + nextLine.slice(nextPrefix.length)
+          }
+          if (styled === next.token && out === nextLine) return nextLine
+          // 置換（最初に見つかった同一トークン位置を安全に置換）。out基準で再計算
+          const adj = firstWordAfterMarkers(out)
+          const before = out.slice(0, adj ? adj.index : next.index)
+          const afterStart = (adj ? adj.index : next.index) + (adj ? adj.token.length : next.token.length)
+          const after = out.slice(afterStart)
           return before + styled + after
         }
         const applyPreserveTokenCase = (prevText, nextText) => {
