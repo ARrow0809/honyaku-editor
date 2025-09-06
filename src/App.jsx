@@ -88,7 +88,59 @@ function App() {
         } else {
           updatedEnglish = await translateText(newJapaneseText, 'en')
         }
-        setEnglishText(updatedEnglish)
+        // 先頭文字の大文字化を防ぐ（前の英語の書式を優先）
+        const preserveLeadingCase = (prevLine, nextLine) => {
+          if (!prevLine || !nextLine) return nextLine
+          // 次の行の先頭の英字位置
+          const findFirstAlpha = (s) => {
+            for (let i = 0; i < s.length; i++) {
+              const ch = s[i]
+              if (/[A-Za-z]/.test(ch)) return i
+            }
+            return -1
+          }
+          const iPrev = findFirstAlpha(prevLine)
+          const iNext = findFirstAlpha(nextLine)
+          if (iPrev === -1 || iNext === -1) return nextLine
+          const prevChar = prevLine[iPrev]
+          const nextChar = nextLine[iNext]
+          const shouldLower = prevChar === prevChar.toLowerCase()
+          const shouldUpper = prevChar === prevChar.toUpperCase()
+          if (/[A-Za-z]/.test(nextChar)) {
+            if (shouldLower && nextChar !== nextChar.toLowerCase()) {
+              return (
+                nextLine.slice(0, iNext) +
+                nextChar.toLowerCase() +
+                nextLine.slice(iNext + 1)
+              )
+            }
+            if (shouldUpper && nextChar !== nextChar.toUpperCase()) {
+              return (
+                nextLine.slice(0, iNext) +
+                nextChar.toUpperCase() +
+                nextLine.slice(iNext + 1)
+              )
+            }
+          }
+          return nextLine
+        }
+
+        const applyPreserveLeadingCase = (prevText, nextText) => {
+          const prevLines = (prevText || '').split(/\r?\n/)
+          const nextLines = (nextText || '').split(/\r?\n/)
+          const max = Math.max(prevLines.length, nextLines.length)
+          const out = []
+          for (let i = 0; i < max; i++) {
+            const prevLine = prevLines[i] || ''
+            const nextLine = nextLines[i] || ''
+            out.push(preserveLeadingCase(prevLine, nextLine))
+          }
+          return out.join('\n')
+        }
+
+        // 現在の英語（before）を基準に、行頭の英字の大小を維持
+        const casedEnglish = applyPreserveLeadingCase(englishText, updatedEnglish)
+        setEnglishText(casedEnglish)
         setOriginalJapanese(newJapaneseText)
       } catch (error) {
         console.error('Translation error:', error)
